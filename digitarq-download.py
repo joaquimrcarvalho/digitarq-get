@@ -25,9 +25,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 BASE_URL = "https://digitarq.arquivos.pt"
 RDIGITAL_URL = BASE_URL + "/rdigital"
 DOWNLOAD_URL = BASE_URL + "/api/rdigital/dissemination"
-USER_AGENT = "Mozilla/5.0"
+USER_AGENT = "Mozilla/5.0 (compatible; digitarq-get/1.0; +https://github.com/joaquimrcarvalho/digitarq-get)"
 JPEG_MAGIC = bytes([0xFF, 0xD8, 0xFF])
 MIN_VALID_SIZE = 1024  # a real page is always larger than this
+
+DEFAULT_WORKERS = 10
+MAX_WORKERS = 20
 
 
 def _http_get(url, timeout=60, headers=None):
@@ -131,13 +134,23 @@ def main():
     parser = argparse.ArgumentParser(description="Download images from Digitarq")
     parser.add_argument("--document-id", required=True, help="Digitarq document ID from the URL hash")
     parser.add_argument("--output-dir", default="./digitarq-download", help="Output directory")
-    parser.add_argument("--max-workers", type=int, default=10, help="Concurrent downloads")
+    parser.add_argument("--max-workers", type=int, default=DEFAULT_WORKERS, help="Concurrent downloads, 1-%d (default %d). Keep it low to avoid overloading the server" % (MAX_WORKERS, DEFAULT_WORKERS))
     parser.add_argument(
         "--sidebar-mapping",
         help="Optional JSON file with a page to fileId mapping, bypassing the automatic lookup",
     )
 
     args = parser.parse_args()
+
+    if args.max_workers < 1:
+        parser.error("--max-workers must be at least 1")
+    if args.max_workers > MAX_WORKERS:
+        print("Capping --max-workers at %d to avoid overloading Digitarq (requested %d)." % (MAX_WORKERS, args.max_workers))
+        args.max_workers = MAX_WORKERS
+
+    if args.sidebar_mapping and not os.path.exists(args.sidebar_mapping):
+        print("Sidebar mapping file not found: %s" % args.sidebar_mapping)
+        return 1
 
     os.makedirs(args.output_dir, exist_ok=True)
 

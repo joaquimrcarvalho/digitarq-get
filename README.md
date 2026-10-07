@@ -26,7 +26,7 @@ Worked example for document `e6981fa6d437493da5b5163d586bff7e`:
 
 - Automatic page-list retrieval via the public JSON API (`/rdigital/{document_id}`), already in sidebar order
 - Full-resolution JPEG downloads (typically ~1400–2000+ px per side)
-- Parallel downloads (default 10 workers)
+- Parallel downloads (default 10 workers, hard cap 20 to protect the server)
 - Resumable: valid pages already on disk are skipped on re-runs
 - Robust: JPEG magic-byte validation, atomic writes and retries (3 attempts with backoff)
 - Pagination-aware: handles documents with more than 1000 pages
@@ -36,6 +36,17 @@ Worked example for document `e6981fa6d437493da5b5163d586bff7e`:
 
 - Python 3.6+
 - Internet access to `digitarq.arquivos.pt`
+
+## Server etiquette (be a good netizen)
+
+Digitarq is a public service run by the Arquivo Nacional da Torre do Tombo. Downloading is a privilege: keep it modest and leave the servers healthy for everyone.
+
+- **Use the defaults.** 10 concurrent downloads is plenty; the script refuses to exceed 20 and warns if you ask for more.
+- **One document at a time.** Do not run several downloads in parallel against the same service.
+- **Back off when things go wrong.** If you see timeouts, `429` or `5xx`, stop and re-run later with fewer workers. The script already retries each page with exponential backoff.
+- **Only fetch what you need.** Do not crawl or bulk-harvest the catalogue; download the documents the research actually requires.
+- **Identify yourself.** The script sends an honest `User-Agent` (`digitarq-get/1.0` with the project URL); do not disguise automated traffic as something else.
+- **Remember the licence.** Images are published under CC BY-SA 4.0 — credit the archive and the document when reusing them.
 
 ## Installation
 
@@ -134,7 +145,7 @@ Options:
 |---|---|---|
 | `--document-id` | required | Document ID (hash in `/documentDetails/{id}` or `/fileViewer/{id}`) |
 | `--output-dir` | `./digitarq-download` | Destination folder |
-| `--max-workers` | `10` | Concurrent downloads |
+| `--max-workers` | `10` | Concurrent downloads, 1–20; keep it low. Values above 20 are capped with a warning |
 | `--sidebar-mapping` | – | JSON file `{"1": 12175626, "2": 12175625}`, bypasses the automatic lookup |
 
 ### Agent workflow
@@ -175,6 +186,7 @@ file ./my-folder/page_001.jpg    # should be "JPEG image data"
 
 - **Wrong page order** — you sorted or numbered by `fileId`. Always use the order returned by the API (sidebar order).
 - **`No file IDs found`** — the document ID may be wrong, or the API changed; use `--sidebar-mapping` as a temporary workaround.
+- **Sidebar mapping file not found** — check the path passed to `--sidebar-mapping`; the script stops instead of silently downloading the whole document.
 - **Missing pages** — the API `total` is authoritative; a gap in `fileId` numbers does not mean a missing page (IDs are not sequential).
 - **HTTP 401** — you are calling an internal endpoint (`/api/rdigital/files/...`). Use the public `/rdigital/{document_id}`.
 - **Misleading `Content-Type`** — the dissemination endpoint sometimes reports `image/tiff` while returning JPEG bytes; trust the magic bytes.

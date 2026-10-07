@@ -41,7 +41,7 @@ Download URL:
 https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&download=true
 ```
 
-Use parallel download (10-20 concurrent) for best performance.
+Use the default 10 concurrent downloads (hard cap 20). Run one download job at a time and back off on errors - Digitarq is a public service (see README, Server etiquette).
 
 ### Step 5: Verify
 

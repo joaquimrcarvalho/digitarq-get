@@ -35,6 +35,8 @@ The sidebar typically shows ~10 thumbnails at a time. Navigate to get them all.
 
 ### Download Images
 
+Be a good netizen: use at most 10 concurrent requests (hard cap 20), one document at a time, and back off on errors - Digitarq is a public service.
+
 After receiving file IDs from Browser Expert in sidebar order:
 
 1. Create output directory

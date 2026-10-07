@@ -19,7 +19,7 @@ When the user wants to download images from a digital document hosted on:
 
 1. **Resolve the document ID**: the hash in `/documentDetails/{document_id}`. When the user gives an archive reference code, find the document on Digitarq first (browser or search) and take the ID from the resulting URL.
 2. **Get the ordered page list**: query the public JSON API `GET /rdigital/{document_id}?fromIndex=0&max=1000`. The `results` array is already in sidebar/page order; `total` is the page count (paginate when there are more pages than `max`).
-3. **Download images**: fetch every page from the dissemination endpoint in parallel, validating JPEG magic bytes and writing atomically.
+3. **Download images**: fetch every page from the dissemination endpoint in parallel — default 10 workers, never more than 20 — validating JPEG magic bytes and writing atomically.
 4. **Page numbering**: use the position of a page in the API `results` list — never the numeric `fileId`.
 
 The bundled script `digitarq-download.py` performs all four steps.
@@ -56,7 +56,7 @@ Download images from digitarq to ./my-manuscript-folder
 ```
 
 Useful options:
-- `--max-workers 10` — concurrent downloads
+- `--max-workers 10` — concurrent downloads (default 10, hard cap 20; higher values are capped with a warning)
 - `--sidebar-mapping mapping.json` — escape hatch with page→fileId pairs (`{"1": 12175626, "2": 12175625}`)
 - Re-running is safe: valid pages already in the output folder are skipped.
 
@@ -130,10 +130,22 @@ Use `total` from the JSON API — it is authoritative. A gap in `fileId` numbers
 
 ## Implementation Notes
 
-- Download in parallel batches (10–20 concurrent)
+- Download with the default 10 concurrent workers; never exceed the hard cap of 20
+- One document at a time; do not start several downloads in parallel against Digitarq
 - Never sort by `fileId`; always preserve the API/sidebar order
 - Validate JPEG magic bytes and skip already-valid pages on re-runs
 - Verify the downloaded count against the API `total`
+
+## Server etiquette (be a good netizen)
+
+Digitarq is a public service. Keep it healthy for other users:
+
+- Use the defaults (10 workers); the script caps `--max-workers` at 20 and warns above that.
+- Run one download job at a time, especially for large documents (hundreds of pages).
+- On timeouts, `429` or `5xx`, stop and re-run later with fewer workers; every page already retries 3 times with exponential backoff.
+- Fetch only the document the user asked for; never crawl or bulk-harvest the catalogue.
+- Keep the honest `digitarq-get/1.0` User-Agent sent by the script.
+- For a big job, tell the user roughly how long it will take instead of starting parallel downloads.
 
 ## Using with pha
 
