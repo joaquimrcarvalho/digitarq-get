@@ -39,11 +39,76 @@ Worked example for document `e6981fa6d437493da5b5163d586bff7e`:
 
 ## Installation
 
-Copy this folder into your agent skills directory:
+The skill is one folder containing `SKILL.md` (agent instructions) and `digitarq-download.py` (the downloader). Copy the whole folder into the skills directory of your agent runtime. Keep the folder name `digitarq-get`: the `name` in the `SKILL.md` YAML front matter must match the folder name.
+
+| Runtime | Install command |
+|---|---|
+| Shared agent-skills convention (DeepSeek Harness, Kun, other tools) | `cp -R digitarq-get ~/.agents/skills/digitarq-get` |
+| Matrix Agent | `cp -R digitarq-get ~/.minimaxagent/skills/digitarq-get` |
+| Claude Code | `cp -R digitarq-get ~/.claude/skills/digitarq-get` |
+| QoderWork | `mkdir -p ~/.qoderwork/skills && cp -R digitarq-get ~/.qoderwork/skills/digitarq-get` |
+| Any other runtime | copy `digitarq-get/` anywhere and point the agent at `digitarq-get/SKILL.md` |
+
+From the published repository you can also use the skills CLI:
 
 ```bash
-cp -r digitarq-get ~/.minimaxagent/skills/
+npx skills add github.com/joaquimrcarvalho/digitarq-get
 ```
+
+No installation is needed to run the downloader by hand: `python3 digitarq-download.py …` works from a clone in any directory.
+
+### Installing for pha users
+
+[pha](https://github.com/joaquimrcarvalho/personal-historical-archive) archives carry their own agent skills in `<archive>/skills/<name>/SKILL.md`, and pha ships an `inbox`/`dropbox` pipeline for ingesting documents. There are two ways to make this skill available to a pha agent.
+
+**A. Into the pha archive** (recommended; any agent pointed at the archive finds it):
+
+```bash
+export PHA_ARCHIVE_DIR="${PHA_ARCHIVE_DIR:-$HOME/jesuit-archive}"   # adapt to your archive
+cp -R digitarq-get "$PHA_ARCHIVE_DIR/skills/digitarq-get"
+```
+
+**B. Into the agent runtime** (shared agent-skills convention used by pha agents and other tools):
+
+```bash
+cp -R digitarq-get ~/.agents/skills/digitarq-get
+```
+
+Both can be used at once, but keep the folder name `digitarq-get`.
+
+**Using the downloader inside a pha workflow.** pha treats one folder under `<archive>/dropbox/documents/` as one document, so downloaded page images can be ingested directly. `page_001.jpg`, `page_002.jpg`, … sort in page order.
+
+```bash
+export PHA_HOME="$HOME/develop/personal-historical-archive"   # adapt
+export PHA_ARCHIVE_DIR="$HOME/jesuit-archive"                 # adapt
+PHA="$PHA_HOME/.venv/bin/pha"
+
+# 1. One folder = one document, downloaded straight into the dropbox
+python3 "$PHA_ARCHIVE_DIR/skills/digitarq-get/digitarq-download.py" \
+  --document-id <document_id> \
+  --output-dir "$PHA_ARCHIVE_DIR/dropbox/documents/digitarq-<slug>"
+
+# 2. Transcribe and index the new document
+"$PHA" scan --path documents/digitarq-<slug>
+```
+
+To hold the download for human review before it is scanned, put it in the inbox instead, then move and scan:
+
+```bash
+mkdir -p "$PHA_ARCHIVE_DIR/inbox/collections/<collection>/digitarq-<slug>"
+python3 "$PHA_ARCHIVE_DIR/skills/digitarq-get/digitarq-download.py" \
+  --document-id <document_id> \
+  --output-dir "$PHA_ARCHIVE_DIR/inbox/collections/<collection>/digitarq-<slug>"
+"$PHA" inbox --move --path collections/<collection>/digitarq-<slug>
+"$PHA" scan --path collections/<collection>/digitarq-<slug>
+```
+
+Notes:
+
+- If you installed only into the agent runtime (option B), run the script from ~/.agents/skills/digitarq-get/digitarq-download.py instead.
+- For collection-specific palaeographer/encoder rules, add or point to a `pha.yaml` in the collection folder.
+- `pha scan` skips unchanged documents on re-runs; add `--reprocess` to force a full re-extraction.
+- The real `PHA_HOME` and archive paths are recorded in `pha-location.md` inside the archive (also printed by `pha info`).
 
 ## Usage
 

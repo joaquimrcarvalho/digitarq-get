@@ -1,24 +1,34 @@
+---
+name: digitarq-get
+description: Download full-resolution page images from Digitarq (Arquivo Nacional da Torre do Tombo / Portuguese National Archives) for a document ID or archive reference, preserving sidebar/page order. Use when the user wants to download, fetch, or ingest a Digitarq document, manuscript, or reference code (for example PT/TT/AJCJ/AJ028) as JPEG page images.
+license: MIT
+---
+
 # Digitarq Download Skill
 
-Downloads high resolution images from the Portuguese Archives digital library (Digitarq).
+Downloads high-resolution images from the Portuguese Archives digital library (Digitarq).
 
 ## When to Use
 
 When the user wants to download images from a digital document hosted on:
 - https://digitarq.arquivos.pt/documentDetails/{id}
 - https://digitarq.arquivos.pt/fileViewer/{id}
+- or identified by an archive reference such as PT/TT/AJCJ/AJ028
 
 ## How It Works
 
-1. **Fetch document metadata**: Access the document details page to get the document ID
-2. **Get file list**: Query the public JSON API (`/rdigital/{document_id}`) or parse the file viewer sidebar
-3. **Download images**: Use the API endpoint to download full-resolution images in parallel
+1. **Resolve the document ID**: the hash in `/documentDetails/{document_id}`. When the user gives an archive reference code, find the document on Digitarq first (browser or search) and take the ID from the resulting URL.
+2. **Get the ordered page list**: query the public JSON API `GET /rdigital/{document_id}?fromIndex=0&max=1000`. The `results` array is already in sidebar/page order; `total` is the page count (paginate when there are more pages than `max`).
+3. **Download images**: fetch every page from the dissemination endpoint in parallel, validating JPEG magic bytes and writing atomically.
+4. **Page numbering**: use the position of a page in the API `results` list — never the numeric `fileId`.
+
+The bundled script `digitarq-download.py` performs all four steps.
 
 ## IMPORTANT: Sidebar Order vs File ID Order
 
 **CRITICAL**: Page numbers in Digitarq correspond to the sidebar order (top to bottom), NOT numerical file ID order.
 
-The sidebar shows pages labeled 1, 2, 3... in order from top to bottom. Each page has a `fileId` that may NOT be sequential or in numerical order.
+Each page has a `fileId` that may NOT be sequential or in numerical order.
 
 Example (document e6981fa6d437493da5b5163d586bff7e):
 | Sidebar Page | fileId |
@@ -31,23 +41,24 @@ Example (document e6981fa6d437493da5b5163d586bff7e):
 
 ## Usage
 
-### Download all images from a document
+Run the bundled script from the skill folder:
+
+```bash
+python3 digitarq-download.py --document-id <document_id> --output-dir ./my-manuscript-folder
+```
+
+Agent requests that resolve to this skill:
 
 ```
-Download images from https://digitarq.arquivos.pt/documentDetails/49c3d3deb2ae4d9197820417c75c6647
-```
-
-### Download images by archive reference
-
-```
+Download images from https://digitarq.arquivos.pt/documentDetails/<id>
 Download images from digitarq reference PT/TT/AJCJ/AJ028
-```
-
-### Download to a specific folder
-
-```
 Download images from digitarq to ./my-manuscript-folder
 ```
+
+Useful options:
+- `--max-workers 10` — concurrent downloads
+- `--sidebar-mapping mapping.json` — escape hatch with page→fileId pairs (`{"1": 12175626, "2": 12175625}`)
+- Re-running is safe: valid pages already in the output folder are skipped.
 
 ## Technical Details
 
@@ -63,54 +74,77 @@ https://digitarq.arquivos.pt/documentDetails/{document_id}
 https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false
 ```
 
-**Public page list API (JSON):** https://digitarq.arquivos.pt/rdigital/{document_id}?fromIndex=0&max=1000
+**Public page list API (JSON):**
+```
+https://digitarq.arquivos.pt/rdigital/{document_id}?fromIndex=0&max=1000
+```
 
-**Full Resolution Download URL:**
+**Full-resolution download URL:**
 ```
 https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&download=true
 ```
 
 ### Workflow
 
-1. Extract `document_id` from URL (the hash in the URL)
-2. Navigate to the file viewer: `/fileViewer/{document_id}?isRepresentation=false`
-3. **Extract file IDs from sidebar in order** - each thumbnail shows a page number and has `fileId=` in its image URL
-4. Download images mapping sidebar page number -> file ID
+1. Extract `document_id` from the URL (the hash in the URL)
+2. Fetch the ordered list: `GET /rdigital/{document_id}?fromIndex=0&max=1000`
+3. Download each page: `GET /api/rdigital/dissemination?fileId={file_id}&download=true`
+4. Save as `page_{page_num:03d}.jpg`, numbering by position in the API list
 
 ### File ID Extraction
 
-The sidebar shows thumbnails with page numbers (1, 2, 3...) and each has a fileId:
-```
-/rdigital/thumb?fileId={file_id}
+The public JSON API returns, for example:
+
+```json
+{
+  "results": [
+    {"id": "12175626", "name": "PT-TT-CF-054_m0001.jpg"},
+    {"id": "12175625", "name": "PT-TT-CF-054_m0002.jpg"}
+  ],
+  "total": 138
+}
 ```
 
-**CRITICAL**: The sidebar order is the CORRECT page order. File IDs may jump around.
+`id` is the `fileId`; the array order is the page order. The internal route `/api/rdigital/files/{document_id}` returns `401 Unauthorized` and must not be used.
 
-Navigate to different pages in the file viewer to extract all file IDs. The sidebar updates to show surrounding pages.
+Browser fallback (only when the API is unavailable): open `/fileViewer/{document_id}?isRepresentation=false` and read the sidebar thumbnails in order; each thumbnail URL contains `/rdigital/thumb?fileId={file_id}`.
 
 ### Image Format
 
-- Format: JPEG
-- Resolution: ~2000x2200 pixels (varies by document)
-- License: CC BY-SA 4.0 (check specific document)
-- Naming: Save as `page_{page_num:03d}.jpg`
+- Format: JPEG (the `Content-Type` header can be misleading; trust the magic bytes)
+- Resolution: ~1400–2000+ px per side (varies by document)
+- License: CC BY-SA 4.0 (check the specific document)
+- Naming: `page_{page_num:03d}.jpg`
 
 ## Common Issues
 
 ### Wrong Page Order
-If downloaded images don't match the document's page order:
-- The sidebar order IS the correct order
+
+If downloaded images do not match the document's page order:
+- You sorted or numbered by `fileId`; use the API/sidebar order instead
 - File IDs are NOT sequential and do NOT correspond to page numbers
-- Always extract file IDs from the sidebar in the order they appear
 
 ### Missing Pages
-Some file IDs may be missing (document has scanned pages, not all numbers exist).
-Always verify by checking the sidebar shows "Navegar: /138" (138 pages total).
+
+Use `total` from the JSON API — it is authoritative. A gap in `fileId` numbers does not mean a missing page (IDs are not sequential; some pages may be blank scans).
 
 ## Implementation Notes
 
-- Download images in parallel batches (10-20 concurrent) for speed
-- File IDs are NOT sequential - always use sidebar order
-- Verify downloads by checking file size (> 100KB typically)
-- Create output directory before downloading
-- Use proper page numbering based on sidebar position, not file ID
+- Download in parallel batches (10–20 concurrent)
+- Never sort by `fileId`; always preserve the API/sidebar order
+- Validate JPEG magic bytes and skip already-valid pages on re-runs
+- Verify the downloaded count against the API `total`
+
+## Using with pha
+
+Inside a pha archive, one folder under `<archive>/dropbox/documents/` is one document, so the download can be ingested directly:
+
+```bash
+python3 digitarq-download.py \
+  --document-id <document_id> \
+  --output-dir "$PHA_ARCHIVE_DIR/dropbox/documents/digitarq-<slug>"
+
+"$PHA_HOME/.venv/bin/pha" scan --path documents/digitarq-<slug>
+```
+
+`page_001.jpg`, `page_002.jpg`, … sort in page order. To hold the download for human review first, download into `$PHA_ARCHIVE_DIR/inbox/collections/<collection>/digitarq-<slug>/`, then run `pha inbox --move` and `pha scan`. See the README for installation into a pha archive and full details.
