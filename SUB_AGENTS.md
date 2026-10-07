@@ -11,45 +11,62 @@ When given a reference code like `PT/TT/CF/054`:
 3. Get document ID from URL: `/documentDetails/{document_id}`
 4. Return the full document URL
 
-### Extract File IDs
+### Extract File IDs from Sidebar (CRITICAL)
+
+Note: the included download script fetches this ordered list automatically from the public JSON API; use this browser workflow when running without the script.
 
 1. Navigate to: `https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false`
-2. Look at the sidebar showing thumbnails (10 per view)
-3. Extract all `fileId` values from thumbnail URLs
-4. The sidebar has infinite scroll - scroll down to load more thumbnails
-5. Collect ALL file IDs until all pages are loaded
-6. Return the complete list sorted
+2. Look at the sidebar - it shows thumbnails labeled 1, 2, 3... up to total pages
+3. **The sidebar order is the CORRECT page order**
+4. Extract the `fileId` from each thumbnail's image URL: `/rdigital/thumb?fileId={file_id}`
+5. **Navigate to different positions** (by clicking thumbnails or using selectedFile parameter) to see more thumbnails
+6. Collect ALL file IDs in sidebar order (page 1 to page N)
 
-### Important
+The sidebar typically shows ~10 thumbnails at a time. Navigate to get them all.
 
-- The sidebar loads thumbnails on demand
-- Scroll down continuously to trigger loading of remaining thumbnails
-- Each thumbnail contains `fileId={number}` in its image src URL
-- Don't stop until you've found all file IDs
+### Important Notes
+
+- **Sidebar order = Page number order**
+- File IDs may jump around (not sequential)
+- Check "Navegar: /138" to confirm total pages
+- Always extract file IDs in the order they appear in sidebar
 
 ## Bash/Python Download Agent
 
 ### Download Images
 
-After receiving file IDs from Browser Expert:
+After receiving file IDs from Browser Expert in sidebar order:
 
 1. Create output directory
-2. Download images in parallel using the API:
+2. Download using CORRECT mapping:
+   ```python
+   # sidebar_order_fileids = [fid1, fid2, fid3, ...]  # from sidebar, page 1 to N
+   
+   for page_num, file_id in enumerate(sidebar_order_fileids, start=1):
+       filename = f"page_{page_num:03d}.jpg"
+       # Download fileId to filename
+   ```
+
+3. Download URL:
    ```
    https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&download=true
    ```
-3. Save as `page_{page_num:03d}.jpg`
 
 ### Verify Downloads
 
-- Check file count matches expected
+- Count files matches sidebar page count
 - Verify file sizes > 50KB
 - Report any errors
 
-## File ID Pattern
+## Example Mapping
 
-File IDs are typically sequential numbers. Example from PT/TT/CF/054:
-- Total pages: 138
-- File ID range: 12175615 to 12175752
+For document with 138 pages, sidebar shows:
+```
+Page 1: fileId=12175626  -> page_001.jpg
+Page 2: fileId=12175625  -> page_002.jpg
+Page 3: fileId=12175624  -> page_003.jpg
+...
+Page 138: fileId=12175752 -> page_138.jpg
+```
 
-The exact pattern depends on the document. Always extract from the actual page.
+Note: fileIds decrease initially (12175626, 12175625, ...) then may jump to different ranges.

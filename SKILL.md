@@ -11,12 +11,27 @@ When the user wants to download images from a digital document hosted on:
 ## How It Works
 
 1. **Fetch document metadata**: Access the document details page to get the document ID
-2. **Get file list**: Access the file viewer to extract all file IDs from the sidebar
+2. **Get file list**: Query the public JSON API (`/rdigital/{document_id}`) or parse the file viewer sidebar
 3. **Download images**: Use the API endpoint to download full-resolution images in parallel
+
+## IMPORTANT: Sidebar Order vs File ID Order
+
+**CRITICAL**: Page numbers in Digitarq correspond to the sidebar order (top to bottom), NOT numerical file ID order.
+
+The sidebar shows pages labeled 1, 2, 3... in order from top to bottom. Each page has a `fileId` that may NOT be sequential or in numerical order.
+
+Example (document e6981fa6d437493da5b5163d586bff7e):
+| Sidebar Page | fileId |
+|-------------|--------|
+| 1 | 12175626 |
+| 2 | 12175625 |
+| 3 | 12175624 |
+| ... | ... |
+| 138 | 12175752 |
 
 ## Usage
 
-### Download all images from a document URL
+### Download all images from a document
 
 ```
 Download images from https://digitarq.arquivos.pt/documentDetails/49c3d3deb2ae4d9197820417c75c6647
@@ -48,10 +63,7 @@ https://digitarq.arquivos.pt/documentDetails/{document_id}
 https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false
 ```
 
-**Thumbnail URL:**
-```
-https://digitarq.arquivos.pt/rdigital/thumb?fileId={file_id}
-```
+**Public page list API (JSON):** https://digitarq.arquivos.pt/rdigital/{document_id}?fromIndex=0&max=1000
 
 **Full Resolution Download URL:**
 ```
@@ -60,19 +72,21 @@ https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&downloa
 
 ### Workflow
 
-1. Extract `document_id` from URL (the hash in the URL, e.g., `49c3d3deb2ae4d9197820417c75c6647`)
-2. Fetch the file viewer page to get sidebar thumbnails
-3. Extract file IDs from the sidebar (each thumbnail has a `fileId` in the URL)
-4. Download all images using the full-res API endpoint
+1. Extract `document_id` from URL (the hash in the URL)
+2. Navigate to the file viewer: `/fileViewer/{document_id}?isRepresentation=false`
+3. **Extract file IDs from sidebar in order** - each thumbnail shows a page number and has `fileId=` in its image URL
+4. Download images mapping sidebar page number -> file ID
 
 ### File ID Extraction
 
-The file viewer shows thumbnails in the sidebar (10 at a time). Each thumbnail URL contains:
+The sidebar shows thumbnails with page numbers (1, 2, 3...) and each has a fileId:
 ```
 /rdigital/thumb?fileId={file_id}
 ```
 
-The sidebar uses infinite scroll - scroll down to load all thumbnails and extract all file IDs.
+**CRITICAL**: The sidebar order is the CORRECT page order. File IDs may jump around.
+
+Navigate to different pages in the file viewer to extract all file IDs. The sidebar updates to show surrounding pages.
 
 ### Image Format
 
@@ -81,42 +95,22 @@ The sidebar uses infinite scroll - scroll down to load all thumbnails and extrac
 - License: CC BY-SA 4.0 (check specific document)
 - Naming: Save as `page_{page_num:03d}.jpg`
 
-## Installation
+## Common Issues
 
-For Matrix Agent, copy this folder to your skills directory:
-```bash
-cp -r digitarq-get ~/.minimaxagent/skills/
-```
+### Wrong Page Order
+If downloaded images don't match the document's page order:
+- The sidebar order IS the correct order
+- File IDs are NOT sequential and do NOT correspond to page numbers
+- Always extract file IDs from the sidebar in the order they appear
 
-## Sub-Agent Instructions
+### Missing Pages
+Some file IDs may be missing (document has scanned pages, not all numbers exist).
+Always verify by checking the sidebar shows "Navegar: /138" (138 pages total).
 
-### For Browser Expert (Main Agent must delegate)
+## Implementation Notes
 
-1. **Find document**: Search Digitarq for the reference or navigate to the document URL
-2. **Extract document ID**: Get the hash from `/documentDetails/{document_id}`
-3. **Get file IDs**: Navigate to `/fileViewer/{document_id}?isRepresentation=false`
-4. **Extract all file IDs**: The sidebar shows 10 thumbnails at a time with infinite scroll
-5. **Report back**: Return the complete list of file IDs
-
-### For Bash/Download Script
-
-Use the Python download script included in this package:
-```bash
-python3 digitarq-download.py --document-id <id> --output-dir <folder>
-```
-
-Or implement using:
-```python
-import urllib.request
-
-base_url = "https://digitarq.arquivos.pt/api/rdigital/dissemination"
-file_ids = list(range(start_id, end_id + 1))
-
-for file_id in file_ids:
-    url = f"{base_url}?fileId={file_id}&download=true"
-    # Download with parallel execution
-```
-
-## License
-
-CC BY-SA 4.0 - See LICENSE file for details.
+- Download images in parallel batches (10-20 concurrent) for speed
+- File IDs are NOT sequential - always use sidebar order
+- Verify downloads by checking file size (> 100KB typically)
+- Create output directory before downloading
+- Use proper page numbering based on sidebar position, not file ID

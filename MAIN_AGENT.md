@@ -19,63 +19,64 @@ If the user provides a reference code:
 1. Delegate to **Browser Expert** to search Digitarq and find the document
 2. Get the document ID from the resulting URL
 
-### Step 3: Extract File IDs
+### Step 3: Extract File IDs from Sidebar (CRITICAL STEP)
 
-1. Navigate to `https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false`
-2. Delegate to **Browser Expert** to extract all file IDs from the sidebar thumbnails
-3. The sidebar uses infinite scroll - scroll down to load all thumbnails
-4. Each thumbnail has a `fileId` in its URL: `/rdigital/thumb?fileId={file_id}`
+Note: the included script fetches this ordered list automatically from `/rdigital/{document_id}`. The browser workflow below is the fallback.
+
+1. Navigate to: `https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false`
+2. **CRITICAL**: The sidebar shows pages 1, 2, 3... in ORDER. This is the correct page order.
+3. Each thumbnail has a `fileId` value. Extract all file IDs IN SIDEBAR ORDER.
+4. Navigate to different positions (page 10, page 30, page 50, etc.) to get all file IDs
+5. The sidebar only shows ~10 thumbnails at a time, so scroll/navigate to collect all
 
 ### Step 4: Download Images
 
-Use the download API endpoint:
+**CRITICAL MAPPING**: 
+- page_001.jpg = fileId from sidebar page 1
+- page_002.jpg = fileId from sidebar page 2
+- etc.
+
+Download URL:
 ```
 https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&download=true
 ```
 
-Options for downloading:
-1. **Python script**: Use `digitarq-download.py` with `--document-id` and `--output-dir`
-2. **Inline Python**: Write a Python script using `urllib.request` with `ThreadPoolExecutor`
-3. **Bash curl**: Use curl with `-L` flag for redirects
+Use parallel download (10-20 concurrent) for best performance.
 
 ### Step 5: Verify
 
-Check that all files were downloaded:
-- Count files matches expected number
-- File sizes are > 50KB (valid images)
+Check that:
+- Page numbers match sidebar order, NOT file ID order
+- File count matches expected (check "Navegar: /138" for total pages)
+- File sizes are reasonable (> 50KB)
 
-## Example Delegation
+## Common Mistakes to Avoid
 
-```
-Main Agent: "Download images from digitarq reference PT/TT/CF/054 to ~/downloads/manuscript"
-
-Delegation 1 (Browser Expert):
-- Find document at digitarq.pt
-- Search for "PT/TT/CF/054"
-- Return document ID and full URL
-
-Delegation 2 (Browser Expert):
-- Navigate to file viewer
-- Extract ALL file IDs from sidebar (138 total)
-
-Delegation 3 (Bash/Python):
-- Download all 138 images using parallel requests
-- Save to ~/downloads/manuscript
+### WRONG: Using sorted file IDs as page numbers
+```python
+# WRONG - file IDs may be non-sequential
+file_ids = sorted(all_file_ids)  
+for i, fid in enumerate(file_ids):
+    save as page_{i}.jpg  # WRONG page order!
 ```
 
-## URL Patterns Reference
+### CORRECT: Using sidebar order as page numbers
+```python
+# CORRECT - sidebar order IS page order
+for sidebar_position, file_id in enumerate(sidebar_file_ids):
+    save as page_{sidebar_position + 1}.jpg  # CORRECT!
+```
 
-| Purpose | URL Pattern |
-|---------|-------------|
-| Document Details | `https://digitarq.arquivos.pt/documentDetails/{document_id}` |
-| File Viewer | `https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false` |
-| Thumbnail | `https://digitarq.arquivos.pt/rdigital/thumb?fileId={file_id}` |
-| Download (full-res) | `https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&download=true` |
+## Example
 
-## Important Notes
+For document e6981fa6d437493da5b5163d586bff7e:
 
-- File IDs are sequential but may not be contiguous
-- The sidebar shows 10 thumbnails at a time with infinite scroll
-- Images are JPEG format, typically ~2000x2200 pixels
-- License is CC BY-SA 4.0 (verify per document)
-- Download in parallel (10-20 concurrent) for best performance
+| Sidebar Position | fileId | Save As |
+|-----------------|--------|---------|
+| 1 | 12175626 | page_001.jpg |
+| 2 | 12175625 | page_002.jpg |
+| 3 | 12175624 | page_003.jpg |
+| ... | ... | ... |
+| 138 | 12175752 | page_138.jpg |
+
+The fileIds are NOT sequential but the sidebar position IS the page number.
