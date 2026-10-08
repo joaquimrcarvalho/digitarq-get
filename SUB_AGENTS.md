@@ -4,6 +4,8 @@
 
 ### Find Document by Reference
 
+Prefer the search API: `GET https://digitarq.arquivos.pt/api/docs/search?query={reference}&max=5`; `results[].id` is the document ID and `referenceCode.value` confirms the match. The download script does this automatically with `--reference`.
+
 When given a reference code like `PT/TT/CF/054`:
 
 1. Navigate to `https://digitarq.arquivos.pt`

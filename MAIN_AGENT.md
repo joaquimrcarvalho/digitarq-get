@@ -16,8 +16,8 @@ The user may provide:
 If the user provides a direct URL, extract the document ID from the hash.
 
 If the user provides a reference code:
-1. Delegate to **Browser Expert** to search Digitarq and find the document
-2. Get the document ID from the resulting URL
+1. Prefer `digitarq-download.py --reference <code>`: it resolves the code via the public search API (`/api/docs/search?query=<code>&max=5`), where `results[].id` is the document ID.
+2. Fallback (browser): get the document ID from the resulting URL.
 
 ### Step 3: Extract File IDs from Sidebar (CRITICAL STEP)
 

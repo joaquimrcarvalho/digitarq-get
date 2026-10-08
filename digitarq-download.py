@@ -8,9 +8,11 @@ NOT numerical fileId order (fileIds are usually not sequential).
 
 Usage:
     python3 digitarq-download.py --document-id <id> --output-dir <folder>
+    python3 digitarq-download.py --reference PT/AHU/CU/064/0024/00064 --output-dir <folder>
 
 Example:
     python3 digitarq-download.py --document-id e6981fa6d437493da5b5163d586bff7e --output-dir ./download
+    python3 digitarq-download.py --reference PT/AHU/CU/064/0024/00064 --output-dir ./PT-AHU-CU-064-0024-00064
 """
 
 import argparse
@@ -23,6 +25,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_URL = "https://digitarq.arquivos.pt"
+SEARCH_URL = BASE_URL + "/api/docs/search"
 RDIGITAL_URL = BASE_URL + "/rdigital"
 DOWNLOAD_URL = BASE_URL + "/api/rdigital/dissemination"
 USER_AGENT = "Mozilla/5.0 (compatible; digitarq-get/1.0; +https://github.com/joaquimrcarvalho/digitarq-get)"
@@ -41,6 +44,46 @@ def _http_get(url, timeout=60, headers=None):
     request = urllib.request.Request(url, headers=request_headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read()
+
+
+def resolve_reference(reference, max_results=10):
+    """
+    Resolve an archive reference to a Digitarq document ID via the public
+    document search API.
+
+    Endpoint:
+        GET /api/docs/search?query={reference}&max={max_results}
+
+    Each result carries:
+        id                     -> document ID for /documentDetails/{id} and /rdigital/{id}
+        referenceCode.value    -> exact archive reference
+        descriptionLevel.value -> e.g. DC (documento composto)
+        titles[].value         -> document title
+        presentQuota.value     -> e.g. "AHU_CU_MOCAMBIQUE, Cx. 24, D. 64"
+        filesCount             -> number of images
+
+    Returns (document_id, record). Raises ValueError when the reference is not
+    found or does not match any result exactly.
+    """
+    query = urllib.parse.urlencode({"query": reference, "max": max_results})
+    body = _http_get(SEARCH_URL + "?" + query, headers={"Accept": "application/json"})
+    data = json.loads(body.decode("utf-8", errors="replace"))
+    results = data.get("results") or []
+    if not results:
+        raise ValueError("no document found for reference %r" % reference)
+
+    wanted = reference.strip().upper()
+    for item in results:
+        code = ((item.get("referenceCode") or {}).get("value") or "").strip().upper()
+        if code == wanted:
+            return item["id"], item
+    if len(results) == 1:
+        return results[0]["id"], results[0]
+
+    codes = [((r.get("referenceCode") or {}).get("value") or "?") for r in results[:5]]
+    raise ValueError(
+        "reference %r not matched exactly; top results: %s" % (reference, ", ".join(codes))
+    )
 
 
 def extract_sidebar_fileids(document_id, page_size=1000):
@@ -130,9 +173,20 @@ def download_image(file_id, output_dir, page_num, attempts=3):
     return (file_id, page_num, "error: %s" % last_error, 0)
 
 
+def describe_reference(record, fallback):
+    """One-line summary of a search record, used in the console output."""
+    code = ((record.get("referenceCode") or {}).get("value")) or fallback
+    quota = (record.get("presentQuota") or {}).get("value") or ""
+    parts = [code]
+    if quota:
+        parts.append(quota)
+    return " | ".join(parts)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Download images from Digitarq")
-    parser.add_argument("--document-id", required=True, help="Digitarq document ID from the URL hash")
+    parser.add_argument("--document-id", help="Digitarq document ID (hash in a /documentDetails/ or /fileViewer/ URL)")
+    parser.add_argument("--reference", help="Archive reference to resolve first, e.g. PT/AHU/CU/064/0024/00064")
     parser.add_argument("--output-dir", default="./digitarq-download", help="Output directory")
     parser.add_argument("--max-workers", type=int, default=DEFAULT_WORKERS, help="Concurrent downloads, 1-%d (default %d). Keep it low to avoid overloading the server" % (MAX_WORKERS, DEFAULT_WORKERS))
     parser.add_argument(
@@ -141,6 +195,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.document_id and args.reference:
+        parser.error("use either --document-id or --reference, not both")
+    if not args.sidebar_mapping and not (args.document_id or args.reference):
+        parser.error("provide --document-id, --reference or --sidebar-mapping")
 
     if args.max_workers < 1:
         parser.error("--max-workers must be at least 1")
@@ -161,9 +220,28 @@ def main():
         file_ids.sort(key=lambda item: item[0])
         print("Loaded %d file IDs from mapping file" % len(file_ids))
     else:
-        print("Fetching file list for document %s..." % args.document_id)
+        document_id = args.document_id
+        expected_files = None
+
+        if args.reference:
+            print("Resolving reference %s..." % args.reference)
+            try:
+                document_id, record = resolve_reference(args.reference)
+            except urllib.error.HTTPError as exc:
+                print("Failed to resolve reference: HTTP %s %s" % (exc.code, exc.reason))
+                return 1
+            except Exception as exc:
+                print("Failed to resolve reference: %s" % exc)
+                return 1
+
+            expected_files = record.get("filesCount")
+            print("Resolved to document %s (%s)" % (document_id, describe_reference(record, args.reference)))
+            if expected_files is not None:
+                print("  search reports %s image(s)" % expected_files)
+
+        print("Fetching file list for document %s..." % document_id)
         try:
-            file_ids = extract_sidebar_fileids(args.document_id)
+            file_ids = extract_sidebar_fileids(document_id)
         except urllib.error.HTTPError as exc:
             print("Failed to fetch file list: HTTP %s %s" % (exc.code, exc.reason))
             return 1
@@ -176,6 +254,8 @@ def main():
             return 1
 
         print("Found %d pages (sidebar order)" % len(file_ids))
+        if expected_files is not None and int(expected_files) != len(file_ids):
+            print("Warning: search reports %s image(s) but the page list has %d; check the reference." % (expected_files, len(file_ids)))
 
     print("Downloading to %s..." % args.output_dir)
     completed = 0

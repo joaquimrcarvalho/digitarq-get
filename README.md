@@ -127,6 +127,7 @@ Notes:
 
 ```bash
 python3 digitarq-download.py --document-id <document_id> --output-dir <folder>
+python3 digitarq-download.py --reference <archive_reference> --output-dir <folder>
 ```
 
 Example:
@@ -143,7 +144,8 @@ Options:
 
 | Option | Default | Description |
 |---|---|---|
-| `--document-id` | required | Document ID (hash in `/documentDetails/{id}` or `/fileViewer/{id}`) |
+| `--document-id` | n/a | Document ID (hash in `/documentDetails/{id}` or `/fileViewer/{id}`) |
+| `--reference` | n/a | Archive reference to resolve via the search API, e.g. `PT/AHU/CU/064/0024/00064` |
 | `--output-dir` | `./digitarq-download` | Destination folder |
 | `--max-workers` | `10` | Concurrent downloads, 1–20; keep it low. Values above 20 are capped with a warning |
 | `--sidebar-mapping` | – | JSON file `{"1": 12175626, "2": 12175625}`, bypasses the automatic lookup |
@@ -154,11 +156,11 @@ Options:
 Download images from digitarq reference PT/TT/CF/054 to ./my-folder
 ```
 
-If the user supplies an archive reference code (e.g. `PT/TT/CF/054`) instead of a document ID, the agent must first resolve it to a `documentDetails` URL (see `SUB_AGENTS.md`), then run the download. Direct `documentDetails`/`fileViewer` URLs can be used as-is: the hash in the URL is the document ID.
+If the user supplies an archive reference code (e.g. `PT/TT/CF/054`) instead of a document ID, the agent can resolve it directly with the script (`--reference`) or, as a fallback, find the `documentDetails` URL in the browser (see `SUB_AGENTS.md`). Direct `documentDetails`/`fileViewer` URLs can be used as-is: the hash in the URL is the document ID.
 
 ## How it works
 
-1. **Resolve the document ID** — the hash in `https://digitarq.arquivos.pt/documentDetails/{document_id}`.
+1. **Resolve the document ID** — the hash in `https://digitarq.arquivos.pt/documentDetails/{document_id}`; for an archive reference, resolve it first with the search API (`GET /api/docs/search?query={reference}&max=5`), which the script does automatically with `--reference`.
 2. **Get the ordered page list** — `GET https://digitarq.arquivos.pt/rdigital/{document_id}?fromIndex=0&max=1000`. The JSON `results` array is in sidebar order; `total` is the page count, used to paginate when needed.
 3. **Download each page** — `GET https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&download=true`, in parallel.
 4. **Verify while writing** — the response must start with the JPEG magic bytes; files are written to `.part` and atomically renamed.
@@ -169,6 +171,7 @@ If the user supplies an archive reference code (e.g. `PT/TT/CF/054`) instead of 
 | Purpose | URL |
 |---|---|
 | Document details (HTML) | `https://digitarq.arquivos.pt/documentDetails/{document_id}` |
+| Document search (JSON) | `https://digitarq.arquivos.pt/api/docs/search?query={reference}&max=5` |
 | File viewer (HTML, SPA) | `https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false` |
 | Ordered page list (JSON) | `https://digitarq.arquivos.pt/rdigital/{document_id}?fromIndex=0&max=1000` |
 | Full-resolution image | `https://digitarq.arquivos.pt/api/rdigital/dissemination?fileId={file_id}&download=true` |

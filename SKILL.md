@@ -17,7 +17,7 @@ When the user wants to download images from a digital document hosted on:
 
 ## How It Works
 
-1. **Resolve the document ID**: the hash in `/documentDetails/{document_id}`. When the user gives an archive reference code, find the document on Digitarq first (browser or search) and take the ID from the resulting URL.
+1. **Resolve the document ID**: the hash in `/documentDetails/{document_id}`. When the user gives an archive reference code, use the public search API: `GET /api/docs/search?query={reference}&max=5`. Each result has `id` (the document ID), `referenceCode.value`, `presentQuota.value` and `filesCount`; the script does this automatically with `--reference`. A browser search is only the fallback.
 2. **Get the ordered page list**: query the public JSON API `GET /rdigital/{document_id}?fromIndex=0&max=1000`. The `results` array is already in sidebar/page order; `total` is the page count (paginate when there are more pages than `max`).
 3. **Download images**: fetch every page from the dissemination endpoint in parallel — default 10 workers, never more than 20 — validating JPEG magic bytes and writing atomically.
 4. **Page numbering**: use the position of a page in the API `results` list — never the numeric `fileId`.
@@ -45,6 +45,7 @@ Run the bundled script from the skill folder:
 
 ```bash
 python3 digitarq-download.py --document-id <document_id> --output-dir ./my-manuscript-folder
+python3 digitarq-download.py --reference PT/AHU/CU/064/0024/00064 --output-dir ./PT-AHU-CU-064-0024-00064
 ```
 
 Agent requests that resolve to this skill:
@@ -57,6 +58,7 @@ Download images from digitarq to ./my-manuscript-folder
 
 Useful options:
 - `--max-workers 10` — concurrent downloads (default 10, hard cap 20; higher values are capped with a warning)
+- `--reference PT/AHU/CU/064/0024/00064` - resolve an archive reference to a document ID first (public search API)
 - `--sidebar-mapping mapping.json` — escape hatch with page→fileId pairs (`{"1": 12175626, "2": 12175625}`)
 - Re-running is safe: valid pages already in the output folder are skipped.
 
@@ -72,6 +74,11 @@ https://digitarq.arquivos.pt/documentDetails/{document_id}
 **File Viewer Page:**
 ```
 https://digitarq.arquivos.pt/fileViewer/{document_id}?isRepresentation=false
+```
+
+**Document search API (JSON, resolves a reference):**
+```
+https://digitarq.arquivos.pt/api/docs/search?query={reference}&max=5
 ```
 
 **Public page list API (JSON):**
